@@ -1,0 +1,212 @@
+
+%  Improved Multi-Verse Optimizer (IMVO2)
+% based 'A New DBSCAN Parameters Determination Method Based on Improved
+% MVO' paper
+function BestSol=IMVO2(prob,params)
+
+% Problem Definition
+fobj = prob.CostFunction; % Cost Function
+lb= prob.VarMin; % Lower Bound of Variables
+ub= prob.VarMax; % Upper Bound of Variables
+u_min = lb;
+u_max = ub;
+dim = prob.nVar;
+
+% MVO Parameters
+Max_time=params.MaxIt;       % Maximum Number of Iterations
+N=params.nPop;   % Population Size (Swarm Size)
+dispFlag = params.dispFlag;
+
+
+%Two variables for saving the position and inflation rate (fitness) of the best universe
+Best_universe=zeros(1,dim);
+Best_universe_Inflation_rate=inf;
+
+%Initialize the positions of universes
+Universes=initialization(N,dim,ub,lb);
+
+%Minimum and maximum of Wormhole Existence Probability (min and max in
+% Eq.(3.3) in the paper
+WEP_Max=1;
+WEP_Min=0.2;
+
+Convergence_curve=zeros(1,Max_time);
+
+%Iteration(time) counter
+Time=1;
+
+%Main loop
+M = Max_time;
+while Time<Max_time+1
+    m = Time;
+    %Eq. (3.3) in the paper
+    WEP=WEP_Min+Time*((WEP_Max-WEP_Min)/Max_time);
+    
+    %Travelling Distance Rate (Formula): Eq. (3.4) in the paper
+    TDR=1-((Time)^(1/6)/(Max_time)^(1/6));
+    
+    %Inflation rates (I) (fitness values)
+    Inflation_rates=zeros(1,size(Universes,1));
+    
+    for i=1:size(Universes,1)
+        
+        %Boundary checking (to bring back the universes inside search
+        % space if they go beyoud the boundaries
+        Flag4ub=Universes(i,:)>ub;
+        Flag4lb=Universes(i,:)<lb;
+        Universes(i,:)=(Universes(i,:).*(~(Flag4ub+Flag4lb)))+ub.*Flag4ub+lb.*Flag4lb;
+        
+        %Calculate the inflation rate (fitness) of universes
+        Inflation_rates(1,i)=fobj(Universes(i,:));
+    end
+    
+    % FIGURE 3. The improved part of the MVO algorith
+    [inf_m, b_idx ] = min(Inflation_rates);
+    if inf_m <= Best_universe_Inflation_rate
+        
+        if inf_m < Best_universe_Inflation_rate
+            u_min = min(Universes,[],1);
+            u_max = max(Universes,[],1);
+        else
+            u_min_temp = min(Universes,[],1);
+            u_max_temp = max(Universes,[],1);
+            
+            u_min = min([u_min_temp;u_min],[],1);
+            u_max = max([u_max_temp;u_max],[],1);
+        end
+        
+        Best_universe_Inflation_rate=Inflation_rates(1,b_idx);
+        Best_universe=Universes(b_idx,:);
+    end
+    
+    
+    [sorted_Inflation_rates,sorted_indexes]=sort(Inflation_rates);
+    
+    for newindex=1:N
+        Sorted_universes(newindex,:)=Universes(sorted_indexes(newindex),:);
+    end
+    
+    %Normaized inflation rates (NI in Eq. (3.1) in the paper)
+    normalized_sorted_Inflation_rates=normr(sorted_Inflation_rates);
+    
+    Universes(1,:)= Sorted_universes(1,:);
+    
+    %Update the Position of universes
+    for i=2:size(Universes,1)%Starting from 2 since the firt one is the elite
+        Back_hole_index=i;
+        for j=1:size(Universes,2)
+            r1=rand();
+            if r1<normalized_sorted_Inflation_rates(i)
+                White_hole_index=RouletteWheelSelection(-sorted_Inflation_rates);% for maximization problem -sorted_Inflation_rates should be written as sorted_Inflation_rates
+                if White_hole_index==-1
+                    White_hole_index=1;
+                end
+                %Eq. (3.1) in the paper
+                Universes(Back_hole_index,j)=Sorted_universes(White_hole_index,j);
+            end
+            
+            if (size(lb,2)==1)
+                %Eq. (3.2) in the paper if the boundaries are all the same
+                r2=rand();
+                if r2<WEP
+                    if m <= M/2
+                        r3=rand();
+                        if r3<0.5
+                            Universes(i,j)=Best_universe(1,j)+TDR*((ub-lb)*rand+lb);
+                        end
+                        if r3>0.5
+                            Universes(i,j)=Best_universe(1,j)-TDR*((ub-lb)*rand+lb);
+                        end
+                        
+                    else
+                        r3=rand();
+                        if r3<0.5
+                            Universes(i,j)=u_max+TDR*((rand-0.4)*10/m);
+                        end
+                        if r3>0.5
+                            Universes(i,j)=u_min-TDR*((rand-0.4)*10/m);
+                        end
+                        
+                    end
+                end
+            end
+            
+            if (size(lb,2)~=1)
+                %Eq. (3.2) in the paper if the upper and lower bounds are
+                %different for each variables
+                r2=rand();
+                if r2<WEP
+                    if m <= M/2
+                        r3=rand();
+                        if r3<0.5
+                            Universes(i,j)=Best_universe(1,j)+TDR*((ub(j)-lb(j))*rand+lb(j));
+                        end
+                        if r3>0.5
+                            Universes(i,j)=Best_universe(1,j)-TDR*((ub(j)-lb(j))*rand+lb(j));
+                        end
+                        
+                    else
+                        r3=rand();
+                        if r3<0.5
+                            Universes(i,j)=u_max(j)+TDR*((rand-0.4)*10/m);
+                        end
+                        if r3>0.5
+                            Universes(i,j)=u_min(j)-TDR*((rand-0.4)*10/m);
+                        end
+                        
+                    end
+                end
+            end
+            
+        end
+    end
+    
+    %Update the convergence curve
+    Convergence_curve(Time)=Best_universe_Inflation_rate;
+    
+    % Display the results
+    if dispFlag
+        disp(['At iteration ',num2str(Time),' the best universes fitness is= ',num2str(Best_universe_Inflation_rate)]);
+    end
+    
+    Time=Time+1;
+end
+BestSol.Position = Best_universe;
+BestSol.Cost = Best_universe_Inflation_rate;
+end
+
+
+% This function initialize the first population of search agents
+function Positions=initialization(SearchAgents_no,dim,ub,lb)
+
+Boundary_no= size(ub,2); % numnber of boundaries
+
+% If the boundaries of all variables are equal and user enter a signle
+% number for both ub and lb
+if Boundary_no==1
+    Positions=rand(SearchAgents_no,dim).*(ub-lb)+lb;
+end
+
+% If each variable has a different lb and ub
+if Boundary_no>1
+    for i=1:dim
+        ub_i=ub(i);
+        lb_i=lb(i);
+        Positions(:,i)=rand(SearchAgents_no,1).*(ub_i-lb_i)+lb_i;
+    end
+end
+
+end
+
+function choice = RouletteWheelSelection(weights)
+accumulation = cumsum(weights);
+p = rand() * accumulation(end);
+chosen_index = -1;
+for index = 1 : length(accumulation)
+    if (accumulation(index) > p)
+        chosen_index = index;
+        break;
+    end
+end
+choice = chosen_index;
+end
